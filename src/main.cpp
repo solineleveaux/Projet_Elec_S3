@@ -25,9 +25,14 @@ bool Boutton_Appuye = false;                    // Variable qui memorise les app
 char ecran_selectionne = 'A';                   // Variable qui sait sur quel écran on est, A pour ecran A et B pour écran B
 int Choix_reglages = 0;                         // Variable qui sait quel est le chox de l'utilisateur dans les reglages
 int Choix_langues = 0;                          // Variable pour le choix de la langue du menu
-int Choix_donnes = 0;                          // Variable pour le choix de la langue du menu
+int Choix_voir_donnes = 0;                      // Variable pour choisir selon la données choisie si on veut la supprimer ou retourner
 char Langue = 'F';                              // Variable qui stocke la langue choisie (F -> Francais, A -> Anglais)
 int position_liste = 0;                         // Variable qui sait où on en est dans l'affichage de la liste de données
+bool suppression_reussie = false;               // Variable pour verifier la bonne suppression des donnees
+bool bouton_choix_ecran = false;                        // Variable qui regarde si le bouton de choix de l'ecran a ete appuye
+unsigned long dernierTempsBouton = 0;           // Variable pour eviter de compter plusieurs fois un appui sur le bouton
+bool dernierEtatBouton = HIGH;                  // Variable pour bien vérifier que l'etat du bouton a change
+
 
 // Historique pour la courbe : 1 octet par colonne = 128 octets de RAM
 const uint8_t NB_POINTS = 128;
@@ -62,10 +67,10 @@ struct Table_donnes
 };
 
 Table_donnes tables_patient;
-
+donnes donne_a_afficher;                        // Variable pour afficher la données dont on veut les informations
 
 // Enumeration des etats de la machine d'etat app
-enum{Demarrage, Reglages, Donnees, Langues} etat_app= Demarrage;  // enumeration des etat de app
+enum{Demarrage, Reglages, Donnees, Langues, voirDonnes, ValidationSuppression} etat_app= Demarrage;  // enumeration des etat de app
 
 
 void changementSurLigneCLK() 
@@ -124,7 +129,6 @@ void gererEncodeurSelonEcran()
   dernierCompteur = compteur; // Remise à niveau du tracker
 }
 
-
 void liste_essai()
 {
   tables_patient.nombre_donnes = 5;
@@ -141,11 +145,82 @@ void liste_essai()
 
 }
 
+bool supprimer_donnee_courante() 
+{
+  // 1. Vérification de sécurité : s'assurer qu'il y a des données à supprimer
+  // et que l'index position_liste est valide
+  if (tables_patient.nombre_donnes <= 0 || position_liste >= tables_patient.nombre_donnes) 
+  {
+    return false;
+  }
+
+  // 2. Boucle pour décaler tous les éléments situés après 'position_liste' d'un cran vers la gauche
+  for (int i = position_liste; i < tables_patient.nombre_donnes - 1; i++) 
+  {
+    tables_patient.liste_donnes[i] = tables_patient.liste_donnes[i + 1];
+  }
+
+  // 3. Réduction du nombre total de données stockées
+  tables_patient.nombre_donnes--;
+
+  // 4. Ajustement de l'index de sélection du menu
+  // Si on vient de supprimer le dernier élément du tableau, on recule la position
+  if (position_liste >= tables_patient.nombre_donnes && position_liste > 0) 
+  {
+    position_liste = tables_patient.nombre_donnes - 1;
+  }
+
+  return true;
+}
+
+void detection_appui_bouton() 
+{
+  bool etatActuel = digitalRead(pinBoutonChoixEcran);
+
+  // Anti-rebond simple de 50 ms
+  if (etatActuel == LOW && dernierEtatBouton == HIGH ) 
+  {
+    dernierTempsBouton = millis();
+    bouton_choix_ecran = true;
+    
+    Serial.print("Bouton appuye ");
+    dernierEtatBouton = etatActuel;
+  }
+  else if (etatActuel==HIGH)
+  {
+    dernierEtatBouton=HIGH;
+  }
+}
+
+
+void choix_deecran() 
+{
+    if (ecran_selectionne == 'A')
+    {
+      ecran_selectionne = 'B';
+    } 
+    else 
+    {
+      ecran_selectionne = 'A';
+    }
+
+    Serial.print("Bouton appuye ! Ecran choisi : ");
+    Serial.println(ecran_selectionne);
+    //dernierEtatBouton = etatActuel;
+}
+
 void app ()
 {
+
   switch (etat_app)
   {
     case Demarrage : 
+      if (bouton_choix_ecran)
+      {
+        bouton_choix_ecran=false;
+        choix_deecran();
+      }
+
       ecranA.firstPage();
       do 
       {
@@ -241,6 +316,12 @@ void app ()
       break;
     
     case Reglages : 
+      if (bouton_choix_ecran)
+      {
+        bouton_choix_ecran=false;
+        etat_app=Demarrage;
+      }
+
       ecranA.firstPage();
       do 
       {
@@ -300,6 +381,7 @@ void app ()
         if (Choix_reglages == 0)
         {
           Boutton_Appuye = false;
+          position_liste = 0;
           etat_app = Donnees;
         }
         if (Choix_reglages == 1)
@@ -318,13 +400,23 @@ void app ()
     
     case Donnees : 
       char ligne[50];
+      
+      if (bouton_choix_ecran)
+      {
+        bouton_choix_ecran=false;
+        etat_app=Demarrage;
+      }
+
       ecranA.firstPage();
       do 
       {
         ecranA.setFont(u8g2_font_6x10_tr); // Police avec de grands chiffres
         if (position_liste<tables_patient.nombre_donnes)
         {
-          sprintf(ligne, "> %d BPM", tables_patient.liste_donnes[position_liste].mesure);
+          sprintf(ligne, "> %d BPM - %d-%d-%d", 
+            tables_patient.liste_donnes[position_liste].mesure, tables_patient.liste_donnes[position_liste].date_heure.year(), 
+            tables_patient.liste_donnes[position_liste].date_heure.month(), tables_patient.liste_donnes[position_liste].date_heure.day()
+          );
           ecranA.drawStr(0, 10, ligne); // On commence en haut à gauche
         }
         else if (position_liste==tables_patient.nombre_donnes)
@@ -340,7 +432,10 @@ void app ()
 
         if (position_liste+1<tables_patient.nombre_donnes)
         {
-          sprintf(ligne, "  %d BPM", tables_patient.liste_donnes[position_liste+1].mesure);
+          sprintf(ligne, "  %d BPM - %d-%d-%d", 
+            tables_patient.liste_donnes[position_liste+1].mesure, tables_patient.liste_donnes[position_liste+1].date_heure.year(), 
+            tables_patient.liste_donnes[position_liste+1].date_heure.month(), tables_patient.liste_donnes[position_liste+1].date_heure.day()
+          );
           ecranA.drawStr(0, 25, ligne); // On commence en haut à gauche
         }
         else if (position_liste+1==tables_patient.nombre_donnes)
@@ -356,7 +451,10 @@ void app ()
 
         if (position_liste+2<tables_patient.nombre_donnes)
         {
-          sprintf(ligne, "  %d BPM", tables_patient.liste_donnes[position_liste+2].mesure);
+          sprintf(ligne, "  %d BPM - %d-%d-%d", 
+            tables_patient.liste_donnes[position_liste+2].mesure, tables_patient.liste_donnes[position_liste+2].date_heure.year(), 
+            tables_patient.liste_donnes[position_liste+2].date_heure.month(), tables_patient.liste_donnes[position_liste+2].date_heure.day()
+          );
           ecranA.drawStr(0, 40, ligne); // On commence en haut à gauche
         }
         else if (position_liste+2==tables_patient.nombre_donnes)
@@ -394,51 +492,168 @@ void app ()
           Boutton_Appuye = false;
           etat_app = Reglages;
         }
-        if (Choix_donnes == 1)
+        if (position_liste != tables_patient.nombre_donnes)
         {
           Boutton_Appuye = false;
-          //etat_app = Langues;
+          donne_a_afficher = tables_patient.liste_donnes[position_liste];
+          etat_app = voirDonnes;
         }
       }
+      
       break ;
     
+    case voirDonnes : 
+      
+      if (bouton_choix_ecran)
+      {
+        bouton_choix_ecran=false;
+        etat_app=Demarrage;
+      }
+
+      ecranA.firstPage();
+      do 
+      {
+        ecranA.setFont(u8g2_font_6x10_tr); // Police avec de grands chiffres
+        ecranA.setCursor(0, 10);// On commence en haut à gauche
+        ecranA.print(F("Données de la mesure : "));
+
+        char chaineBPM[30];
+        sprintf(chaineBPM, "MESURE : %d BPM", donne_a_afficher.mesure);
+        ecranA.drawStr(0, 20, chaineBPM);
+
+        char chaineDate[30];
+        sprintf(chaineDate, "DATE : %d-%d-%d", donne_a_afficher.date_heure.year(), donne_a_afficher.date_heure.month(), donne_a_afficher.date_heure.day());
+        ecranA.drawStr(0, 30, chaineDate); 
+
+        char chaineHeure[30];
+        sprintf(chaineHeure, "HEURE : %d:%d:%d", donne_a_afficher.date_heure.hour(), donne_a_afficher.date_heure.minute(), donne_a_afficher.date_heure.second());
+        ecranA.drawStr(0, 40, chaineHeure); 
+
+        switch (Choix_voir_donnes)
+        {      
+
+          case 0:
+            ecranA.setCursor(0, 50);// On commence en haut à gauche
+            ecranA.print(F("> Supprimer"));
+            ecranA.setCursor(0, 60);// On commence en haut à gauche
+            ecranA.print(F("  Retour"));
+            break;
+          case 1:
+            ecranA.setCursor(0, 50);// On commence en haut à gauche
+            ecranA.print(F("  Supprimer"));
+            ecranA.setCursor(0, 60);// On commence en haut à gauche
+            ecranA.print(F("> Retour"));
+            break;          
+        } 
+      } while(ecranA.nextPage());
+
+      if (compteur != ancien_compteur) 
+      {
+        Choix_voir_donnes = Choix_voir_donnes + compteur - ancien_compteur;
+        ancien_compteur=compteur;
+        if (Choix_voir_donnes>1) Choix_voir_donnes=0;
+        if (Choix_voir_donnes<0) Choix_voir_donnes=1;
+      }
+
+      if (Boutton_Appuye)
+      {
+        if (Choix_voir_donnes == 0)
+        {
+          Boutton_Appuye = false;
+          suppression_reussie = supprimer_donnee_courante();
+          etat_app = ValidationSuppression;
+        }
+        if (Choix_voir_donnes == 1)
+        {
+          Boutton_Appuye = false;
+          position_liste = 0;
+          etat_app = Donnees;
+        }
+      }
+
+      break;
+    
+    case ValidationSuppression : 
+
+      if (bouton_choix_ecran)
+      {
+        bouton_choix_ecran=false;
+        etat_app=Demarrage;
+      }
+
+      ecranA.firstPage();
+      do 
+      {
+        ecranA.setFont(u8g2_font_6x10_tr); // Police avec de grands chiffres
+        if (suppression_reussie) 
+        { 
+          ecranA.setCursor(0, 10);
+          ecranA.print(F("La donnee a bien ete"));
+          ecranA.setCursor(0, 20);
+          ecranA.print(F("supprimee"));
+        }
+        else
+        { 
+          ecranA.setCursor(0, 10);
+          ecranA.print(F("Erreur lors de la"));
+          ecranA.setCursor(0, 20);
+          ecranA.print(F("suppression"));
+        }
+
+        ecranA.setCursor(0, 40);
+        ecranA.print(F("Cliquer sur l'encodeur"));
+        ecranA.setCursor(0, 50);
+        ecranA.print(F("pour retourner"));
+      } while(ecranA.nextPage());
+
+      if (Boutton_Appuye)
+      {
+        Boutton_Appuye = false;
+        etat_app = Donnees;
+      }
+      
+      break ;
+
     case Langues : 
+      
+      if (bouton_choix_ecran)
+      {
+        bouton_choix_ecran=false;
+        etat_app=Demarrage;
+      }
+      
       ecranA.firstPage();
       do 
       {
         ecranA.setFont(u8g2_font_6x10_tr); // Police avec de grands chiffres
         switch (Choix_langues)
         {
-          //ecranA.drawStr(0, 10, "Selectionnez la langue : "); // On commence en haut à gauche
           ecranA.setCursor(0, 10);// On commence en haut à gauche
           ecranA.print(F("Selectionnez la langue : "));
 
           case 0:
-            ecranA.setCursor(0, 10);// On commence en haut à gauche
+            ecranA.setCursor(0, 25);
             ecranA.print(F("> Francais"));
-            ecranA.setCursor(0, 25);// On commence en haut à gauche
+            ecranA.setCursor(0, 40);
             ecranA.print(F("  Anglais"));
-            ecranA.setCursor(0, 40);// On commence en haut à gauche
+            ecranA.setCursor(0, 55);
             ecranA.print(F("  Retour"));
-
-            //ecranA.drawStr(0, 10, "> Francais"); // On commence en haut à gauche
-            //ecranA.drawStr(0, 25, "  Anglais"); // On ecrit après la ligne sauté
-            //ecranA.drawStr(0, 40, "  Retour"); // On peut retourner à l'écran précédent
             break;
+
           case 1:
-            ecranA.setCursor(0, 10);// On commence en haut à gauche
-            ecranA.print(F("  Francais"));
             ecranA.setCursor(0, 25);// On commence en haut à gauche
-            ecranA.print(F("> Anglais"));
+            ecranA.print(F("  Francais"));
             ecranA.setCursor(0, 40);// On commence en haut à gauche
+            ecranA.print(F("> Anglais"));
+            ecranA.setCursor(0, 55);// On commence en haut à gauche
             ecranA.print(F("  Retour"));
             break;
           case 2:
-            ecranA.setCursor(0, 10);// On commence en haut à gauche
-            ecranA.print(F("  Francais"));
             ecranA.setCursor(0, 25);// On commence en haut à gauche
-            ecranA.print(F("  Anglais"));
+            ecranA.print(F("  Francais"));
             ecranA.setCursor(0, 40);// On commence en haut à gauche
+            ecranA.print(F("  Anglais"));
+            ecranA.setCursor(0, 55);// On commence en haut à gauche
             ecranA.print(F("> Retour"));
             break;
           
@@ -487,6 +702,9 @@ void setup()
   pinMode(pinArduinoRaccordementSignalDT, INPUT);
   pinMode(pinBoutonChoixEcran, INPUT_PULLUP);
 
+  Serial.begin(9600);
+  Serial.println("Démarrage du programme...");
+
   // Initialisation de l'ecran
   Wire.begin();
   ecranA.setI2CAddress(adresse_ecran_A * 2); // U8g2 attend l'adresse sur 8 bits
@@ -495,7 +713,6 @@ void setup()
   ecranB.setBusClock(400000);
   ecranA.begin();
   ecranB.begin();
-  Serial.begin(9600);
 
   etatPrecedentLigneSW = digitalRead(pinArduinoRaccordementSignalSW);
   etatPrecedentLigneCLK = digitalRead(pinArduinoRaccordementSignalCLK);
@@ -510,5 +727,7 @@ void setup()
 void loop() 
 {
   gererEncodeurSelonEcran(); // Traite le delta de l'encodeur selon l'écran actif
+  //choix_ecran();
+  detection_appui_bouton();
   app();
 }
