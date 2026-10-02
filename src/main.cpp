@@ -29,8 +29,7 @@ int Choix_voir_donnes = 0;                      // Variable pour choisir selon l
 char Langue = 'F';                              // Variable qui stocke la langue choisie (F -> Francais, A -> Anglais)
 int position_liste = 0;                         // Variable qui sait où on en est dans l'affichage de la liste de données
 bool suppression_reussie = false;               // Variable pour verifier la bonne suppression des donnees
-bool bouton_choix_ecran = false;                        // Variable qui regarde si le bouton de choix de l'ecran a ete appuye
-unsigned long dernierTempsBouton = 0;           // Variable pour eviter de compter plusieurs fois un appui sur le bouton
+bool bouton_choix_ecran = false;                // Variable qui regarde si le bouton de choix de l'ecran a ete appuye
 bool dernierEtatBouton = HIGH;                  // Variable pour bien vérifier que l'etat du bouton a change
 
 
@@ -49,7 +48,7 @@ const uint8_t COURBE_H = 52;   // hauteur (12 + 52 = 64)
 String heure = "16:00";
 
 // Variable bpm pour récupérer le BPM
-int bpm = 80;
+int bpm = 90;
 
 // Structure de données pour les enregistrement
 struct donnes
@@ -119,13 +118,7 @@ void gererEncodeurSelonEcran()
     // Bornage du zoom (ex: entre 1 et 5)
     if (zoomPPG < 1) zoomPPG = 1;
     if (zoomPPG > 5) zoomPPG = 5;
-  } 
-  else if (ecran_selectionne == 'A') 
-  {
-    // Sur l'écran A : tu pourras utiliser 'delta' pour naviguer dans un menu ou changer d'état
-    // ex: indexMenu += delta;
   }
-
   dernierCompteur = compteur; // Remise à niveau du tracker
 }
 
@@ -180,7 +173,6 @@ void detection_appui_bouton()
   // Anti-rebond simple de 50 ms
   if (etatActuel == LOW && dernierEtatBouton == HIGH ) 
   {
-    dernierTempsBouton = millis();
     bouton_choix_ecran = true;
     
     Serial.print("Bouton appuye ");
@@ -191,7 +183,6 @@ void detection_appui_bouton()
     dernierEtatBouton=HIGH;
   }
 }
-
 
 void choix_deecran() 
 {
@@ -244,13 +235,19 @@ void app ()
 
         // Fréquence cardiaque (bpm)
         ecranA.setFont(u8g2_font_logisoso24_tn); // Grands chiffres pour la valeur
-        String bpmStr = String(bpm);
+        String bpmStr;
+        if (bpm > 30 && bpm < 220) // Condition de validité d'une FC
+        { 
+          bpmStr = String(bpm);
+        } else {
+          bpmStr = "--";             // Tiret si valeur invalide ou absence de mesure
+        }
 
         // Position Y du bas du texte (bas de l'écran moins une marge de 5)
         int yBpm = SCREEN_HEIGHT - 5; 
         
         // Position X du chiffre BPM
-        int xBpm = (SCREEN_WIDTH / 2) - 10; // A partir de la moitié de l'écran en x -10
+        int xBpm = (SCREEN_WIDTH / 2) - 15; // A partir de la moitié de l'écran en x -10
         ecranA.drawStr(xBpm, yBpm, bpmStr.c_str()); // On ecrit
 
         // Calcul dynamique de la position du texte "bpm" grâce à la largeur réelle du chiffre affiché
@@ -271,11 +268,41 @@ void app ()
         ecranB.print(F("PPG"));
       
         // Axes et repères
+        // Ligne principale de l'axe X
         ecranB.drawHLine(5, 52, 100); 
-        ecranB.drawLine(102, 50, 105, 52);
-        ecranB.drawLine(102, 54, 105, 52);
-        ecranB.setCursor(85, 62);
-        ecranB.print(F("t (s)"));
+
+        // Positions en X des repères (début, milieu, fin)
+        const int xMin = 5;
+        const int xMid = 54;
+        const int xMax = 103;
+
+        // Repères verticaux de 3 pixels de haut
+        ecranB.drawVLine(xMin, 52, 3);
+        ecranB.drawVLine(xMid, 52, 3);
+        ecranB.drawVLine(xMax, 52, 3);
+        
+        // 1. Calcul de la durée totale représentée sur la largeur de la courbe (99 px)
+        // Ajuste ce facteur (ex: 0.1) selon ton taux d'échantillonnage réel
+        float dureeTotaleSec = (99.0 * 0.1) / zoomPPG; 
+
+        // 2. Affichage des textes de graduation (police 6x10)
+        ecranB.setFont(u8g2_font_6x10_tr);
+
+        // Valeur 0 s
+        ecranB.setCursor(xMin - 3, 62);
+        ecranB.print(F("0"));
+
+        // Valeur intermédiaire (ex. mi-parcours)
+        ecranB.setCursor(xMid - 8, 62);
+        ecranB.print(dureeTotaleSec / 2.0, 1); // 1 décimale
+
+        // Valeur maximale
+        ecranB.setCursor(xMax - 12, 62);
+        ecranB.print(dureeTotaleSec, 1);
+
+        // Légende de l'axe
+        ecranB.setCursor(112, 62);
+        ecranB.print(F("s"));
 
         ecranB.drawVLine(105, 12, 40);
         ecranB.setCursor(110, 15);
@@ -329,42 +356,67 @@ void app ()
         switch (Choix_reglages)
         {
           case 0:
-            ecranA.setCursor(0, 10);
-            ecranA.print(F("> Voir les données"));
-            ecranA.setCursor(0, 25);
-            ecranA.print(F("  Changer la langue"));
-            ecranA.setCursor(0, 40);
-            ecranA.print(F("  Retour"));
-
-            //ecranA.drawStr(0, 10, "> Voir les données"); // On commence en haut à gauche
-            //ecranA.drawStr(0, 25, "  Changer la langue"); // On ecrit après la ligne sauté
-            //ecranA.drawStr(0, 40, "  Retour"); // On peut retourner à l'écran précédent
+            if (Langue=='F')
+            {
+              ecranA.setCursor(0, 10);
+              ecranA.print(F("> Voir les données"));
+              ecranA.setCursor(0, 25);
+              ecranA.print(F("  Changer la langue"));
+              ecranA.setCursor(0, 40);
+              ecranA.print(F("  Retour"));
+            }
+            else 
+            {
+              ecranA.setCursor(0, 10);
+              ecranA.print(F("> See the data"));
+              ecranA.setCursor(0, 25);
+              ecranA.print(F(" Change the language"));
+              ecranA.setCursor(0, 40);
+              ecranA.print(F("  Return"));
+            }
             break;
+
           case 1:
-            ecranA.setCursor(0, 10);
-            ecranA.print(F("  Voir les données"));
-            ecranA.setCursor(0, 25);
-            ecranA.print(F("> Changer la langue"));
-            ecranA.setCursor(0, 40);
-            ecranA.print(F("  Retour"));
-
-            //ecranA.drawStr(0, 10, "  Voir les données"); // On commence en haut à gauche
-            //ecranA.drawStr(0, 25, "> Changer la langue"); // On ecrit après la ligne sauté
-            //ecranA.drawStr(0, 40, "  Retour"); // On peut retourner à l'écran précédent
+            if (Langue == 'F')
+            {
+              ecranA.setCursor(0, 10);
+              ecranA.print(F("  Voir les données"));
+              ecranA.setCursor(0, 25);
+              ecranA.print(F("> Changer la langue"));
+              ecranA.setCursor(0, 40);
+              ecranA.print(F("  Retour"));
+            }
+            else
+            {
+              ecranA.setCursor(0, 10);
+              ecranA.print(F("  See the data"));
+              ecranA.setCursor(0, 25);
+              ecranA.print(F("> Change the language"));
+              ecranA.setCursor(0, 40);
+              ecranA.print(F("  Return"));
+            }
             break;
+
           case 2:
-            ecranA.setCursor(0, 10);
-            ecranA.print(F("  Voir les données"));
-            ecranA.setCursor(0, 25);
-            ecranA.print(F("  Changer la langue"));
-            ecranA.setCursor(0, 40);
-            ecranA.print(F("> Retour"));
-
-            //ecranA.drawStr(0, 10, "  Voir les données"); // On commence en haut à gauche
-            //ecranA.drawStr(0, 25, "  Changer la langue"); // On ecrit après la ligne sauté
-            //ecranA.drawStr(0, 40, "> Retour"); // On peut retourner à l'écran précédent
+            if (Langue == 'F')
+            {
+              ecranA.setCursor(0, 10);
+              ecranA.print(F("  Voir les données"));
+              ecranA.setCursor(0, 25);
+              ecranA.print(F("  Changer la langue"));
+              ecranA.setCursor(0, 40);
+              ecranA.print(F("> Retour"));
+            }
+            else
+            {
+              ecranA.setCursor(0, 10);
+              ecranA.print(F("  See the data"));
+              ecranA.setCursor(0, 25);
+              ecranA.print(F("  Change the language"));
+              ecranA.setCursor(0, 40);
+              ecranA.print(F("> Return"));
+            }
             break;
-          
         } 
       } while(ecranA.nextPage());
 
@@ -421,8 +473,16 @@ void app ()
         }
         else if (position_liste==tables_patient.nombre_donnes)
         {
-          ecranA.setCursor(0,10);
-          ecranA.print(F("> Retour"));          
+          if (Langue=='F')
+          {
+            ecranA.setCursor(0,10);
+            ecranA.print(F("> Retour"));       
+          }
+          else 
+          {
+            ecranA.setCursor(0,10);
+            ecranA.print(F("> Return"));    
+          }   
         }
         else
         {
@@ -440,8 +500,16 @@ void app ()
         }
         else if (position_liste+1==tables_patient.nombre_donnes)
         {
-          ecranA.setCursor(0,25);
-          ecranA.print(F("  Retour"));          
+          if (Langue=='F')
+          {
+            ecranA.setCursor(0,25);
+            ecranA.print(F("  Retour"));          
+          }
+          else
+          {
+            ecranA.setCursor(0, 25);
+            ecranA.print(F("  Return"));
+          }
         }
         else
         {
@@ -459,8 +527,16 @@ void app ()
         }
         else if (position_liste+2==tables_patient.nombre_donnes)
         {
-          ecranA.setCursor(0,40);
-          ecranA.print(F("  Retour"));          
+          if (Langue=='F')
+          {
+            ecranA.setCursor(0,40);
+            ecranA.print(F("  Retour"));  
+          }  
+          else
+          {
+            ecranA.setCursor(0, 40);
+            ecranA.print(F("  Return"));
+          }      
         }
         else
         {
@@ -513,37 +589,79 @@ void app ()
       ecranA.firstPage();
       do 
       {
-        ecranA.setFont(u8g2_font_6x10_tr); // Police avec de grands chiffres
-        ecranA.setCursor(0, 10);// On commence en haut à gauche
-        ecranA.print(F("Données de la mesure : "));
+        if (Langue == 'F')
+        {
+          ecranA.setFont(u8g2_font_6x10_tr); // Police avec de grands chiffres
+          ecranA.setCursor(0, 10);// On commence en haut à gauche
+          ecranA.print(F("Données de la mesure : "));
 
-        char chaineBPM[30];
-        sprintf(chaineBPM, "MESURE : %d BPM", donne_a_afficher.mesure);
-        ecranA.drawStr(0, 20, chaineBPM);
+          char chaineBPM[30];
+          sprintf(chaineBPM, "MESURE : %d BPM", donne_a_afficher.mesure);
+          ecranA.drawStr(0, 20, chaineBPM);
 
-        char chaineDate[30];
-        sprintf(chaineDate, "DATE : %d-%d-%d", donne_a_afficher.date_heure.year(), donne_a_afficher.date_heure.month(), donne_a_afficher.date_heure.day());
-        ecranA.drawStr(0, 30, chaineDate); 
+          char chaineDate[30];
+          sprintf(chaineDate, "DATE : %d-%d-%d", donne_a_afficher.date_heure.year(), donne_a_afficher.date_heure.month(), donne_a_afficher.date_heure.day());
+          ecranA.drawStr(0, 30, chaineDate); 
 
-        char chaineHeure[30];
-        sprintf(chaineHeure, "HEURE : %d:%d:%d", donne_a_afficher.date_heure.hour(), donne_a_afficher.date_heure.minute(), donne_a_afficher.date_heure.second());
-        ecranA.drawStr(0, 40, chaineHeure); 
+          char chaineHeure[30];
+          sprintf(chaineHeure, "HEURE : %d:%d:%d", donne_a_afficher.date_heure.hour(), donne_a_afficher.date_heure.minute(), donne_a_afficher.date_heure.second());
+          ecranA.drawStr(0, 40, chaineHeure); 
+        }
+        else
+        {
+          ecranA.setFont(u8g2_font_6x10_tr); // Police avec de grands chiffres
+          ecranA.setCursor(0, 10);// On commence en haut à gauche
+          ecranA.print(F("Measure data : "));
+
+          char chaineBPM[30];
+          sprintf(chaineBPM, "MEASURE : %d BPM", donne_a_afficher.mesure);
+          ecranA.drawStr(0, 20, chaineBPM);
+
+          char chaineDate[30];
+          sprintf(chaineDate, "DATE : %d-%d-%d", donne_a_afficher.date_heure.year(), donne_a_afficher.date_heure.month(), donne_a_afficher.date_heure.day());
+          ecranA.drawStr(0, 30, chaineDate); 
+
+          char chaineHeure[30];
+          sprintf(chaineHeure, "HOUR : %d:%d:%d", donne_a_afficher.date_heure.hour(), donne_a_afficher.date_heure.minute(), donne_a_afficher.date_heure.second());
+          ecranA.drawStr(0, 40, chaineHeure); 
+        }
 
         switch (Choix_voir_donnes)
         {      
 
           case 0:
-            ecranA.setCursor(0, 50);// On commence en haut à gauche
-            ecranA.print(F("> Supprimer"));
-            ecranA.setCursor(0, 60);// On commence en haut à gauche
-            ecranA.print(F("  Retour"));
+            if(Langue =='F')
+            {
+              ecranA.setCursor(0, 50);// On commence en haut à gauche
+              ecranA.print(F("> Supprimer"));
+              ecranA.setCursor(0, 60);// On commence en haut à gauche
+              ecranA.print(F("  Retour"));
+            }
+            else
+            {
+              ecranA.setCursor(0, 50);// On commence en haut à gauche
+              ecranA.print(F("> Delete"));
+              ecranA.setCursor(0, 60);// On commence en haut à gauche
+              ecranA.print(F("  Return"));
+            }
             break;
+          
           case 1:
-            ecranA.setCursor(0, 50);// On commence en haut à gauche
-            ecranA.print(F("  Supprimer"));
-            ecranA.setCursor(0, 60);// On commence en haut à gauche
-            ecranA.print(F("> Retour"));
-            break;          
+            if(Langue =='F')
+            {
+              ecranA.setCursor(0, 50);// On commence en haut à gauche
+              ecranA.print(F("  Supprimer"));
+              ecranA.setCursor(0, 60);// On commence en haut à gauche
+              ecranA.print(F("> Retour"));
+            }
+            else
+            {
+              ecranA.setCursor(0, 50);// On commence en haut à gauche
+              ecranA.print(F("  Delete"));
+              ecranA.setCursor(0, 60);// On commence en haut à gauche
+              ecranA.print(F("> Return"));
+            }  
+            break;        
         } 
       } while(ecranA.nextPage());
 
@@ -587,23 +705,53 @@ void app ()
         ecranA.setFont(u8g2_font_6x10_tr); // Police avec de grands chiffres
         if (suppression_reussie) 
         { 
-          ecranA.setCursor(0, 10);
-          ecranA.print(F("La donnee a bien ete"));
-          ecranA.setCursor(0, 20);
-          ecranA.print(F("supprimee"));
+          if (Langue == 'F')
+          {
+            ecranA.setCursor(0, 10);
+            ecranA.print(F("La donnee a bien ete"));
+            ecranA.setCursor(0, 20);
+            ecranA.print(F("supprimee"));
+          }
+          else
+          {
+            ecranA.setCursor(0, 10);
+            ecranA.print(F("The data has been"));
+            ecranA.setCursor(0, 20);
+            ecranA.print(F("deleted"));
+          }
         }
         else
         { 
-          ecranA.setCursor(0, 10);
-          ecranA.print(F("Erreur lors de la"));
-          ecranA.setCursor(0, 20);
-          ecranA.print(F("suppression"));
+          if (Langue =='F')
+          {
+            ecranA.setCursor(0, 10);
+            ecranA.print(F("Erreur lors de la"));
+            ecranA.setCursor(0, 20);
+            ecranA.print(F("suppression"));
+          }
+          else
+          {
+            ecranA.setCursor(0, 10);
+            ecranA.print(F("Error while"));
+            ecranA.setCursor(0, 20);
+            ecranA.print(F("deleting"));
+          }
         }
 
-        ecranA.setCursor(0, 40);
-        ecranA.print(F("Cliquer sur l'encodeur"));
-        ecranA.setCursor(0, 50);
-        ecranA.print(F("pour retourner"));
+        if (Langue =='F')
+        {
+          ecranA.setCursor(0, 40);
+          ecranA.print(F("Cliquer sur l'encodeur"));
+          ecranA.setCursor(0, 50);
+          ecranA.print(F("pour retourner"));
+        }
+        else
+        {
+          ecranA.setCursor(0, 40);
+          ecranA.print(F("Cick on the encoder"));
+          ecranA.setCursor(0, 50);
+          ecranA.print(F("to return")); 
+        }
       } while(ecranA.nextPage());
 
       if (Boutton_Appuye)
@@ -625,36 +773,84 @@ void app ()
       ecranA.firstPage();
       do 
       {
-        ecranA.setFont(u8g2_font_6x10_tr); // Police avec de grands chiffres
+        
+        ecranA.setFont(u8g2_font_6x10_tr);
+
+        if (Langue == 'F')
+        {
+          ecranA.setCursor(0, 10);
+          ecranA.print(F("Selectionnez la langue : "));
+        }
+        else
+        {
+          ecranA.setCursor(0, 10);
+          ecranA.print(F("Select the language : "));
+        }
+
         switch (Choix_langues)
         {
-          ecranA.setCursor(0, 10);// On commence en haut à gauche
-          ecranA.print(F("Selectionnez la langue : "));
 
           case 0:
-            ecranA.setCursor(0, 25);
-            ecranA.print(F("> Francais"));
-            ecranA.setCursor(0, 40);
-            ecranA.print(F("  Anglais"));
-            ecranA.setCursor(0, 55);
-            ecranA.print(F("  Retour"));
+            if (Langue=='F')
+            {
+              ecranA.setCursor(0, 25);
+              ecranA.print(F("> Francais"));
+              ecranA.setCursor(0, 40);
+              ecranA.print(F("  Anglais"));
+              ecranA.setCursor(0, 55);
+              ecranA.print(F("  Retour"));
+            }
+            else 
+            {
+              ecranA.setCursor(0, 25);
+              ecranA.print(F("> French"));
+              ecranA.setCursor(0, 40);
+              ecranA.print(F("  English"));
+              ecranA.setCursor(0, 55);
+              ecranA.print(F("  Return"));
+            }
             break;
 
           case 1:
-            ecranA.setCursor(0, 25);// On commence en haut à gauche
-            ecranA.print(F("  Francais"));
-            ecranA.setCursor(0, 40);// On commence en haut à gauche
-            ecranA.print(F("> Anglais"));
-            ecranA.setCursor(0, 55);// On commence en haut à gauche
-            ecranA.print(F("  Retour"));
+            if (Langue=='F')
+            {
+              ecranA.setCursor(0, 25);
+              ecranA.print(F("  Francais"));
+              ecranA.setCursor(0, 40);
+              ecranA.print(F("> Anglais"));
+              ecranA.setCursor(0, 55);
+              ecranA.print(F("  Retour"));
+            }
+            else
+            {
+              ecranA.setCursor(0, 25);
+              ecranA.print(F("  French"));
+              ecranA.setCursor(0, 40);
+              ecranA.print(F("> English"));
+              ecranA.setCursor(0, 55);
+              ecranA.print(F("  Return"));
+            }
             break;
+
           case 2:
-            ecranA.setCursor(0, 25);// On commence en haut à gauche
-            ecranA.print(F("  Francais"));
-            ecranA.setCursor(0, 40);// On commence en haut à gauche
-            ecranA.print(F("  Anglais"));
-            ecranA.setCursor(0, 55);// On commence en haut à gauche
-            ecranA.print(F("> Retour"));
+            if (Langue =='F')
+            {
+              ecranA.setCursor(0, 25);
+              ecranA.print(F("  Francais"));
+              ecranA.setCursor(0, 40);// On commence en haut à gauche
+              ecranA.print(F("  Anglais"));
+              ecranA.setCursor(0, 55);// On commence en haut à gauche
+              ecranA.print(F("> Retour"));
+            }
+            else
+            {
+              ecranA.setCursor(0, 25);
+              ecranA.print(F("  French"));
+              ecranA.setCursor(0, 40);// On commence en haut à gauche
+              ecranA.print(F("  English"));
+              ecranA.setCursor(0, 55);// On commence en haut à gauche
+              ecranA.print(F("> Return"));
+            }
             break;
           
         } 
@@ -727,7 +923,6 @@ void setup()
 void loop() 
 {
   gererEncodeurSelonEcran(); // Traite le delta de l'encodeur selon l'écran actif
-  //choix_ecran();
   detection_appui_bouton();
   app();
 }
